@@ -152,7 +152,8 @@ def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
     """
     sigma2 = gnp.exp(param[0])
     loginvrho = param[1:]
-    nugget = 10.0 * sigma2 * gnp.finfo(gnp.float64).eps
+    # FIXME: To be totally deleted
+    nugget = 0.0 * sigma2 * gnp.finfo(gnp.float64).eps
 
     if pairwise:
         # return a vector of covariances
@@ -247,6 +248,8 @@ def maternp_covariance(x, y, p, param, pairwise=False):
 
 ## -- parameters
 
+class NonInvertibleInitCovMat(Exception):
+    pass
 
 def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
     """Anisotropic initialization strategy with zero mean.
@@ -309,7 +312,13 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
-    zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
+    try:
+        zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
+    except gnp.linalg_error:
+        zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam, True)
+        #raise NonInvertibleInitCovMat("The init of the length scale parameters led to a non-invertible matrix.")
+
+    assert zTKinvz > 0, "zTKinvz is not strictly positive: {}. Covparam = {}, z = {}".format(zTKinvz, covparam, zi_)
 
     mean_GLS = gnp.sum(Kinvz) / gnp.sum(Kinv1)
     sigma2_GLS = (1.0 / n) * zTKinvz
@@ -440,7 +449,7 @@ def autoselect_parameters(
     silent=True,
     info=False,
     method="SLSQP",
-    method_options={},
+    method_options={}
 ):
     """Optimize parameters using a provided criterion and gradient function.
 

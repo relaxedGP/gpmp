@@ -6,7 +6,6 @@
 import warnings
 import gpmp.num as gnp
 
-
 class Model:
     """Gaussian Process (GP) Model Class.
 
@@ -515,12 +514,10 @@ class Model:
 
         try:
             Kinv_zi, C = gnp.cholesky_solve(K, zi)
-        except RuntimeError:
-            if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-                return gnp.inf
-            elif gnp._gpmp_backend_ == "torch":
-                inf_tensor = gnp.tensor(float("inf"), requires_grad=True)
-                return inf_tensor  # returns inf with None gradient
+        except gnp.GnpLinalgError as e:
+            e.env_dict["xi"] = xi
+            e.env_dict["covparam"] = covparam
+            raise e
 
         norm2 = gnp.einsum("i..., i...", zi, Kinv_zi)
         ldetK = 2.0 * gnp.sum(gnp.log(gnp.diag(C)))
@@ -672,7 +669,7 @@ class Model:
 
         return norm_sqrd
 
-    def k_inverses(self, xi, zi, covparam):
+    def k_inverses(self, xi, zi, covparam, use_auto_nugget=False):
         """Compute various quantities involving the inverse of K.
 
         Specifically, this method calculates:
@@ -688,6 +685,8 @@ class Model:
             Output (response) values corresponding to the input data points xi.
         covparam : array_like
             Covariance parameters for the Gaussian process.
+        use_nugget : boolean
+            Shall the auto-nugget be used in case K is not numerically invertible?
 
         Returns
         -------
@@ -709,11 +708,13 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         ones_vector = gnp.ones(zi.shape)
 
-        Kinv = gnp.cholesky_inv(K)
+        Kinv = gnp.cholesky_inv(K, use_auto_nugget=use_auto_nugget)
         Kinv_zi = gnp.einsum("...i, i... ", Kinv, zi)
         Kinv_1 = gnp.einsum("...i, i... ", Kinv, ones_vector)
 
-        zTKinvz = gnp.einsum("i..., i...", zi, Kinv_zi)
+        L = gnp.cholesky(K, lower=True, use_auto_nugget=use_auto_nugget)
+        Linv_zi = gnp.solve_triangular(L, zi, lower=True)
+        zTKinvz = gnp.einsum("i..., i...", Linv_zi, Linv_zi)
 
         return zTKinvz, Kinv_1, Kinv_zi
 

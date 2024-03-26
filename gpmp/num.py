@@ -41,6 +41,12 @@ if _gpmp_backend_ is None:
 
 print(f"Using backend: {_gpmp_backend_}")
 
+# Error class
+class GnpLinalgError(BaseException):
+    def __init__(self, message, env_dict):
+        # Call the base class constructor with the parameters it needs
+        super().__init__(message)
+        self.env_dict = env_dict
 
 # -----------------------------------------------------
 #
@@ -176,11 +182,12 @@ if _gpmp_backend_ == "numpy":
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
 
-    def cholesky_inv(A):
+    def cholesky_inv(A, use_auto_nugget=True):
         # FIXME: slow!
         # n = A.shape[0]
         # C, lower = cho_factor(A)
         # Ainv = cho_solve((C, lower), eye(n))
+        assert not use_auto_nugget
         return inv(A)
 
     def cholesky_solve(A, b):
@@ -273,13 +280,15 @@ elif _gpmp_backend_ == "torch":
     )
     from torch.linalg import cond, qr, inv
     from torch import rand, randn
-    from torch import cdist
+    #from torch import cdist
     from torch import pi, inf
     from torch import finfo, float64
     from torch.distributions.multivariate_normal import MultivariateNormal
     from torch.distributions.normal import Normal
     from scipy.stats import multivariate_normal as scipy_mvnormal
     from scipy.special import gammaln
+
+    linalg_error = torch._C._LinAlgError
 
     eps = finfo(float64).eps
     fmax = finfo(float64).max
@@ -397,11 +406,40 @@ elif _gpmp_backend_ == "torch":
         a = torch.where(torch.isinf(a), torch.full_like(a, bigf), a)
         return a
 
+    def auto_nugget(A, func, *args, func_kw_args={}, n_auto_nugget=7, base_relative_nugget=10**(-6), verbose=False):
+        try:
+            return func(A, *args, **func_kw_args)
+        except torch._C._LinAlgError as e:
+            for cpt in range(n_auto_nugget):
+                relative_nugget = 10**(cpt) * base_relative_nugget
+                if verbose:
+                    print("Try relative nugget: {}".format(relative_nugget))
+                A_nugget = A + relative_nugget * torch.diag(A.diagonal())
+                try:
+                    return func(A_nugget, *args, **func_kw_args)
+                except torch._C._LinAlgError as inner_e:
+                    print(inner_e)
+                    pass
+            print(e)
+            print("Covariance matrix: {}".format(A))
+            # print("Condition number: {} (log10) with relative nugget: {}".format(
+            #         torch.log10(torch.linalg.cond(A_nugget)),
+            #         relative_nugget
+            #     )
+            # )
+            # print("Eigenvalues of jittered covariance matrix: {}".format(torch.linalg.eig(A_nugget)[0]))
+            raise GnpLinalgError("Non positive-definite matrix", {"A": A})
+
     def svd(A, full_matrices=True, hermitian=True):
         return torch.linalg.svd(A, full_matrices)
 
     def solve(A, B, overwrite_a=True, overwrite_b=True, assume_a="gen", sym_pos=False):
-        return torch.linalg.solve(A, B)
+        return auto_nugget(A, torch.linalg.solve, B, verbose=True)
+        #return torch.linalg.solve(A, B)
+
+    def solve_triangular(A, b, trans=0, lower=False, unit_diagonal=False, overwrite_b=False, check_finite=True):
+        del trans, overwrite_b, check_finite  # Unused
+        return torch.linalg.solve_triangular(A, b, upper=not (lower), left=True, unitriangular=unit_diagonal, out=None)
 
     def grad(f):
         def f_grad(x):
@@ -421,11 +459,43 @@ elif _gpmp_backend_ == "torch":
         def jit(f, *args, **kwargs):
             return f
 
+    def custom_sqrt(x):
+        # Arbitrary
+        fake_value = 3.0
+
+        mask = (x == 0)
+        x_copy = torch.where(mask, fake_value, x)
+
+        res = torch.where(mask, 0, sqrt(x_copy))
+
+        return res
+
+    def custom_cdist(x, y):
+        xx = torch.unsqueeze(x, 0)
+        yy = torch.unsqueeze(y, 1)
+        d_square = sum(torch.square(xx - yy), axis=2)
+        d = custom_sqrt(d_square)
+        return d.T
+
+    def cdist_xx(x):
+        distances = custom_cdist(x, x)
+
+        mask = torch.eye(distances.size(0), distances.size(1), dtype=torch.bool)
+        robust_distances = distances.masked_fill(mask, 0.0)
+
+        return robust_distances
+
     def scaled_distance(loginvrho, x, y):
         invrho = exp(loginvrho)
         xs = invrho * x
-        ys = invrho * y
-        return cdist(xs, ys)
+
+        if x is y:
+            output = cdist_xx(xs)
+        else:
+            ys = invrho * y
+            output = custom_cdist(xs, ys)
+
+        return output
 
     def scaled_distance_elementwise(loginvrho, x, y):
         if x is y or y is None:
@@ -435,21 +505,30 @@ elif _gpmp_backend_ == "torch":
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
 
-    def cholesky(A, lower=False, overwrite_a=False, check_finite=True):
+    def cholesky(A, lower=False, overwrite_a=False, check_finite=True, use_auto_nugget=False):
         # NOTE: in cholesky(), overwrite_a and check_finite
         # are kept for consistency with Scipy but silently ignored.
-        return torch.linalg.cholesky(A, upper=not (lower))
+        if use_auto_nugget:
+            return auto_nugget(A, lambda _A: torch.linalg.cholesky(_A, upper=not (lower)), verbose=True)
+        else:
+            return torch.linalg.cholesky(A, upper=not (lower))
 
-    def cho_factor(A, lower=False, overwrite_a=False, check_finite=True):
+    def cho_factor(A, lower=False, overwrite_a=False, check_finite=True, use_auto_nugget=False):
         # torch.linalg does not have cho_factor(), use cholesky() instead.
-        return torch.linalg.cholesky(A, upper=not (lower))
+        if use_auto_nugget:
+            return auto_nugget(A, lambda _A: torch.linalg.cholesky(_A, upper=not (lower)), verbose=True)
+        else:
+            return torch.linalg.cholesky(A, upper=not (lower))
 
     def cholesky_solve(A, b):
-        C = torch.linalg.cholesky(A)
+        C = auto_nugget(A, torch.linalg.cholesky)
         return torch.cholesky_solve(b.reshape(-1, 1), C, upper=False), C
 
-    def cholesky_inv(A):
-        C = torch.linalg.cholesky(A)
+    def cholesky_inv(A, use_auto_nugget=True):
+        if use_auto_nugget:
+            C = auto_nugget(A, torch.linalg.cholesky, verbose=True)
+        else:
+            C = torch.linalg.cholesky(A)
         return torch.cholesky_inverse(C)
 
     class normal:
@@ -701,11 +780,12 @@ elif _gpmp_backend_ == "jax":
         )
         return f
 
-    def cholesky_inv(A):
+    def cholesky_inv(A, use_auto_nugget=True):
         # FIXME: slow!
         # n = A.shape[0]
         # C, lower = cho_factor(A)
         # Ainv = cho_solve((C, lower), eye(n))
+        assert not use_auto_nugget
         return inv(A)
 
     def cholesky_solve(A, b):
