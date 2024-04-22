@@ -505,32 +505,45 @@ elif _gpmp_backend_ == "torch":
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
 
+    def safe_cholesky(A, **kwargs):
+        C = torch.linalg.cholesky(A, **kwargs)
+        C_diag = C.diagonal()
+        assert (C_diag > 0).all(), "Invalid cholesky diagonal: {}".format(C_diag)
+
+        cond_C = C_diag.max() / C_diag.min()
+        # We want the inverse of the square of the condition number of C
+        # to be greater than 100*eps  (-6.827 = .5*log10(100*eps))
+        if cond_C > 10**(6.827):
+            raise torch._C._LinAlgError
+
+        return C
+
     def cholesky(A, lower=False, overwrite_a=False, check_finite=True, use_auto_nugget=False):
         # NOTE: in cholesky(), overwrite_a and check_finite
         # are kept for consistency with Scipy but silently ignored.
         if use_auto_nugget:
-            return auto_nugget(A, lambda _A: torch.linalg.cholesky(_A, upper=not (lower)), verbose=True)
+            return auto_nugget(A, lambda _A: safe_cholesky(_A, upper=not (lower)), verbose=True)
         else:
-            return torch.linalg.cholesky(A, upper=not (lower))
+            return safe_cholesky(A, upper=not (lower))
 
     def cho_factor(A, lower=False, overwrite_a=False, check_finite=True, use_auto_nugget=False):
         # torch.linalg does not have cho_factor(), use cholesky() instead.
         if use_auto_nugget:
-            return auto_nugget(A, lambda _A: torch.linalg.cholesky(_A, upper=not (lower)), verbose=True)
+            return auto_nugget(A, lambda _A: safe_cholesky(_A, upper=not (lower)), verbose=True)
         else:
-            return torch.linalg.cholesky(A, upper=not (lower))
+            return safe_cholesky(A, upper=not (lower))
 
     def cholesky_solve(A, b):
-        C = auto_nugget(A, torch.linalg.cholesky)
+        C = auto_nugget(A, safe_cholesky)
         if b.ndim == 1:
             b = b.reshape(-1, 1)
         return torch.cholesky_solve(b, C, upper=False), C
 
     def cholesky_inv(A, use_auto_nugget=True):
         if use_auto_nugget:
-            C = auto_nugget(A, torch.linalg.cholesky, verbose=True)
+            C = auto_nugget(A, safe_cholesky, verbose=True)
         else:
-            C = torch.linalg.cholesky(A)
+            C = safe_cholesky(A)
         return torch.cholesky_inverse(C)
 
     class normal:
