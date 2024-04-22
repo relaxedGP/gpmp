@@ -406,7 +406,7 @@ elif _gpmp_backend_ == "torch":
         a = torch.where(torch.isinf(a), torch.full_like(a, bigf), a)
         return a
 
-    def auto_nugget(A, func, *args, func_kw_args={}, n_auto_nugget=7, base_relative_nugget=10**(-6), verbose=False):
+    def auto_nugget(A, func, *args, func_kw_args={}, n_auto_nugget=16, base_relative_nugget=10**(-15), verbose=False):
         try:
             return func(A, *args, **func_kw_args)
         except torch._C._LinAlgError as e:
