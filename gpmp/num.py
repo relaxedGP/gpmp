@@ -418,7 +418,8 @@ elif _gpmp_backend_ == "torch":
                 try:
                     return func(A_nugget, *args, **func_kw_args)
                 except torch._C._LinAlgError as inner_e:
-                    print(inner_e)
+                    if verbose:
+                        print(inner_e)
                     pass
             print(e)
             print("Covariance matrix: {}".format(A))
@@ -514,7 +515,9 @@ elif _gpmp_backend_ == "torch":
         # We want the inverse of the square of the condition number of C
         # to be greater than 100*eps  (-6.827 = .5*log10(100*eps))
         if cond_C > 10**(6.827):
-            raise torch._C._LinAlgError
+            raise torch._C._LinAlgError(
+                "Condition number of cholesky factor: {} (log10) was too high.".format(log10(cond_C))
+            )
 
         return C
 
