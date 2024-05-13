@@ -525,14 +525,14 @@ elif _gpmp_backend_ == "torch":
         # NOTE: in cholesky(), overwrite_a and check_finite
         # are kept for consistency with Scipy but silently ignored.
         if use_auto_nugget:
-            return auto_nugget(A, lambda _A: safe_cholesky(_A, upper=not (lower)), verbose=True)
+            return auto_nugget(A, lambda _A: safe_cholesky(_A, upper=not (lower)), verbose=False)
         else:
             return safe_cholesky(A, upper=not (lower))
 
     def cho_factor(A, lower=False, overwrite_a=False, check_finite=True, use_auto_nugget=False):
         # torch.linalg does not have cho_factor(), use cholesky() instead.
         if use_auto_nugget:
-            return auto_nugget(A, lambda _A: safe_cholesky(_A, upper=not (lower)), verbose=True)
+            return auto_nugget(A, lambda _A: safe_cholesky(_A, upper=not (lower)), verbose=False)
         else:
             return safe_cholesky(A, upper=not (lower))
 
@@ -544,7 +544,7 @@ elif _gpmp_backend_ == "torch":
 
     def cholesky_inv(A, use_auto_nugget=True):
         if use_auto_nugget:
-            C = auto_nugget(A, safe_cholesky, verbose=True)
+            C = auto_nugget(A, safe_cholesky, verbose=False)
         else:
             C = safe_cholesky(A)
         return torch.cholesky_inverse(C)
