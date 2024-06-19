@@ -497,6 +497,11 @@ def autoselect_parameters(
     Depending on the backend (`gnp._gpmp_backend_`), different preparations are made
     for the criterion and gradient functions to ensure compatibility.
     """
+
+    gnp._gpmp_backend_ == "torch"
+    buffer_x = []
+    buffer_y = []
+
     tic = time.time()
     if gnp._gpmp_backend_ == "jax":
         # scipy.optimize.minimize cannot use jax arrays
@@ -505,8 +510,11 @@ def autoselect_parameters(
     elif gnp._gpmp_backend_ == "torch":
 
         def crit_asnumpy(p):
+            buffer_x.append(p)
             v = criterion(gnp.asarray(p))
-            return v.detach().item()
+            res = v.detach().item()
+            buffer_y.append(res)
+            return res
 
         def gradient_asnumpy(p):
             g = gradient(gnp.asarray(p))
@@ -568,6 +576,17 @@ def autoselect_parameters(
     )
 
     best = r.x
+
+    idx_min_history = np.array(buffer_y).argmin()
+    argmin_history = buffer_x[idx_min_history]
+    if crit_asnumpy(argmin_history) < crit_asnumpy(best):
+        best = argmin_history
+        print(
+            "The value {} from the optimizer history was better than the final value {}".format(
+                crit_asnumpy(argmin_history), crit_asnumpy(best)
+            )
+        )
+
     if silent is False:
         print("Gradient")
         print("--------")
