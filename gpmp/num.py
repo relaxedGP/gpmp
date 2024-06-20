@@ -536,8 +536,8 @@ elif _gpmp_backend_ == "torch":
         else:
             return safe_cholesky(A, upper=not (lower))
 
-    def cholesky_solve(A, b):
-        C = auto_nugget(A, safe_cholesky)
+    def cholesky_solve(A, b, verbose=False):
+        C = auto_nugget(A, safe_cholesky, verbose=verbose)
         if b.ndim == 1:
             b = b.reshape(-1, 1)
         return torch.cholesky_solve(b, C, upper=False), C
