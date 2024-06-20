@@ -581,11 +581,11 @@ def autoselect_parameters(
     argmin_history = buffer_x[idx_min_history]
     if crit_asnumpy(argmin_history) < crit_asnumpy(best):
         best = argmin_history
-        print(
-            "The value {} from the optimizer history was better than the final value {}".format(
-                crit_asnumpy(argmin_history), crit_asnumpy(best)
-            )
-        )
+        # print(
+        #     "The value {} from the optimizer history was better than the final value {}".format(
+        #         crit_asnumpy(argmin_history), crit_asnumpy(best)
+        #     )
+        # )
 
     if silent is False:
         print("Gradient")
