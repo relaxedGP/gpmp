@@ -269,7 +269,7 @@ def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
     return gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
 
-def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
+def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi, max_scaling=10.0):
     """Anisotropic initialization strategy with a parameterized constant mean.
 
     This function provides initial parameter guesses for an
@@ -284,6 +284,8 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
         the number of points and `d` is the dimensionality.
     zi : array_like, shape (n, )
         Output (response) values corresponding to the input data points xi.
+    max_scaling : float
+        Maximum multiple of the isotropic length scale parameters.
 
     Returns
     -------
@@ -311,12 +313,26 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
 
-    covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
-    try:
-        zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
-    except gnp.linalg_error:
-        zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam, True)
-        #raise NonInvertibleInitCovMat("The init of the length scale parameters led to a non-invertible matrix.")
+    # Maximum isotropic multiple
+    rho = max_scaling * rho
+    cpt = 0
+    n_attempts = 20
+    adjustment_factor = 0.9
+    while True:
+        covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
+        try:
+            zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
+            # Invert succeeded with the largest possible multiple.
+            break
+        except gnp.linalg_error:
+            # Invert failed. Decrease rho and try again.
+            cpt += 1
+            rho = adjustment_factor * rho
+            if cpt > n_attempts:
+                # To much attempts. Use auto-nugget.
+                zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam, True)
+                break
+            continue
 
     assert zTKinvz > 0, "zTKinvz is not strictly positive: {}. Covparam = {}, z = {}".format(zTKinvz, covparam, zi_)
 
