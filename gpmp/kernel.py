@@ -204,7 +204,7 @@ def maternp_covariance_it(x, y, p, param, pairwise=False):
     return K
 
 
-def maternp_covariance(x, y, p, param, pairwise=False):
+def maternp_covariance(x, y, p, param, pairwise=False, use_noise=True):
     """Matérn covariance function with half-integer regularity nu = p + 1/2.
 
     The kernel is defined in terms of the Euclidean distance, between
@@ -243,6 +243,7 @@ def maternp_covariance(x, y, p, param, pairwise=False):
     if y is x or y is None:
         return maternp_covariance_ii_or_tt(x, p, param, pairwise)
     else:
+        assert not use_noise
         return maternp_covariance_it(x, y, p, param, pairwise)
 
 
