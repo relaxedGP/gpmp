@@ -190,19 +190,19 @@ class Model:
     def kriging_predictor_with_zero_mean(self, xi, xt, return_type=0):
         """Compute the kriging predictor with zero mean."""
         Kii = self.covariance(xi, xi, self.covparam)
-        Kit = self.covariance(xi, xt, self.covparam)
+        Kit = self.covariance(xi, xt, self.covparam, use_noise=False)
 
         lambda_t = gnp.cholesky_solve(Kii, Kit)[0]
 
         if return_type == -1:
             zt_posterior_variance = None
         elif return_type == 0:
-            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True, use_noise=False)
             zt_posterior_variance = zt_prior_variance - gnp.einsum(
                 "i..., i...", lambda_t, Kit
             )
         elif return_type == 1:
-            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False)
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False, use_noise=False)
             zt_posterior_variance = zt_prior_variance - gnp.matmul(lambda_t.T, Kit)
 
         return lambda_t, zt_posterior_variance
@@ -238,7 +238,7 @@ class Model:
         LHS = gnp.vstack((gnp.hstack((Kii, Pi)), gnp.hstack((Pi.T, gnp.zeros((q, q))))))
 
         # RHS
-        Kit = self.covariance(xi, xt, self.covparam)
+        Kit = self.covariance(xi, xt, self.covparam, use_noise=False)
         Pt = self.mean(xt, self.meanparam)
         RHS = gnp.vstack((Kit, Pt.T))
 
@@ -253,12 +253,12 @@ class Model:
         if return_type == -1:
             zt_posterior_variance = None
         elif return_type == 0:
-            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True, use_noise=False)
             zt_posterior_variance = zt_prior_variance - gnp.einsum(
                 "i..., i...", lambdamu_t, RHS
             )
         elif return_type == 1:
-            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False)
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False, use_noise=False)
             zt_posterior_variance = zt_prior_variance - gnp.matmul(lambdamu_t.T, RHS)
 
         return lambda_t, zt_posterior_variance
@@ -661,6 +661,9 @@ class Model:
         >>> covparam = np.array([1.0, 0.1])
         >>> norm_sqrd = model.norm_k_sqrd_with_zero_mean(xi, zi, covparam)
         """
+        raise RuntimeError
+        # TODO:() Check
+
         K = self.covariance(xi, xi, covparam)
         Kinv_zi, _ = gnp.cholesky_solve(K, zi)
         norm_sqrd = gnp.einsum("i..., i...", zi, Kinv_zi)
@@ -740,6 +743,8 @@ class Model:
             The squared norm of the residual vector after applying the
             contrast matrix W: (Wz)' (WKW)^-1 Wz.
         """
+        raise RuntimeError
+        # TODO:() Check
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, self.meanparam)
         n, q = P.shape
@@ -795,7 +800,7 @@ class Model:
         """
         xt_ = gnp.asarray(xt)
 
-        K = self.covariance(xt_, xt_, self.covparam)
+        K = self.covariance(xt_, xt_, self.covparam, use_noise=False)
 
         # Factorization of the covariance matrix
         if method == "chol":
